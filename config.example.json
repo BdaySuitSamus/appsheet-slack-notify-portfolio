@@ -1,0 +1,6 @@
+{
+  "_comment": "These are not read from this file at runtime -- the Apps Script Web App has no access to this repo's filesystem. Set each of these as a Script Property (Project Settings > Script Properties) in the deployed Apps Script project. This file just documents the values that need to exist there.",
+  "WEBHOOK_SHARED_SECRET": "REPLACE_ME_WITH_A_RANDOM_SECRET",
+  "SLACK_BOT_TOKEN_BRAND_A": "xoxb-REPLACE_ME_BRAND_A_BOT_TOKEN",
+  "SLACK_BOT_TOKEN_BRAND_B": "xoxb-REPLACE_ME_BRAND_B_BOT_TOKEN"
+}
