@@ -77,13 +77,15 @@ script deduplicates. Fixed by setting retries to 0 on the step (the script
 already fails open, so retry-on-failure was never doing useful work here
 anyway).
 
-**A photo-attachment feature was built, tested live, and ultimately
-reverted.** A later iteration tried attaching the package's photo (already
+**A photo-attachment feature was built, broke in a subtle way, got
+reverted, and was later fixed properly by routing around the actual root
+cause.** A first iteration tried attaching the package's photo (already
 captured by the source app) to the Slack DM via Slack's external file
-upload flow. It worked cleanly in isolated testing against an
-already-synced photo. Every real end-to-end test — an actual photo taken
-through the live app — came back text-only. Chasing this down took three
-rounds:
+upload flow, by looking the photo up directly in the source app's Drive
+folder (`DriveApp.getFolderById(...).getFilesByName(...)`). It worked
+cleanly in isolated testing against an already-synced photo. Every real
+end-to-end test — an actual photo taken through the live app — came back
+text-only. Chasing this down took three rounds:
 1. First real test produced zero Slack messages at all — unrelated to
    photos, a stale test Slack account had been deactivated earlier in
    testing.
@@ -100,17 +102,40 @@ rounds:
    full 65 seconds, exhausting every retry attempt — yet the photo file's
    own Drive `createdTime` was *three seconds before that execution even
    started*. The file already existed in Drive before the search ever ran,
-   and the lookup still couldn't find it for over a minute. That points to
+   and the lookup still couldn't find it for over a minute. That pointed to
    Drive's file-*search index* lagging behind actual file creation — a
    different and less tractable problem than upload latency, since no
    amount of retrying a search query fixes a stale index.
 
-   Rather than build a more complex mechanism (e.g., a delayed second
-   Slack message via a scheduled trigger, re-reading the source data
-   directly once the index has caught up), the photo feature was dropped
-   and the notification shipped text-only. The retry-loop code, the
-   `drive.readonly` OAuth scope, and the async-execution setting added
-   for it were all reverted along with it.
+   Rather than build a more complex mechanism on the same broken
+   foundation (e.g., a delayed second Slack message via a scheduled
+   trigger), the photo feature was dropped and the notification shipped
+   text-only for a while. The retry-loop code, the `drive.readonly` OAuth
+   scope, and the async-execution setting added for it were all reverted
+   along with it.
+
+**Revisited later, root-caused properly, and fixed for real.** The actual
+bug was never upload latency — it was that `getFilesByName()` (even
+folder-scoped) queries Drive's *search index*, which is eventually
+consistent independent of the file's own metadata, rather than Drive's
+metadata store, which is strongly consistent. No retry budget fixes a
+stale index. The fix was to stop asking Apps Script to find the file in
+Drive at all: the source app (AppSheet) has its own file-serving URL
+mechanism, generated from the app's own definitive knowledge of the
+upload rather than a third-party search index. A new formula column in
+the source app builds that URL directly from the photo column's value,
+and the URL is passed straight through the webhook body instead of a bare
+filename. Apps Script's side collapsed from a Drive-search-with-retries
+loop down to one plain `UrlFetchApp.fetch(url)` call — simpler code that
+also happens to be correct, since it no longer depends on any search
+index at all. (This did require relaxing one app-wide setting — the
+source platform can require its file-serving URLs to be
+cryptographically signed, which blocks arbitrary formula-built links; that
+was disabled deliberately, after confirming the underlying files aren't
+actually sensitive in this context.) Verified against the exact original
+failure mode — a freshly captured photo, through the live app, followed
+through to a real Slack DM — not just the already-synced case that misled
+the first round of testing.
 
 ## Stack
 
